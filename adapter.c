@@ -44,6 +44,10 @@
 #include "netceiver.h"
 #endif
 
+#ifndef DISABLE_TSFILE
+#include "tsfile.h"
+#endif
+
 #ifdef AXE
 #include "axe.h"
 #endif
@@ -110,6 +114,9 @@ void find_adapters()
 #endif
 #ifndef DISABLE_NETCVCLIENT
 	find_netcv_adapter(a);
+#endif
+#ifndef DISABLE_TSFILE
+	find_tsfile_adapter(a);
 #endif
 #ifdef AXE
 	find_axe_adapter(a);

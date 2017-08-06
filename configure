@@ -626,6 +626,7 @@ ac_header_list=
 ac_subst_vars='LTLIBOBJS
 AXE
 DVBAPI
+TSFILE
 STATIC
 SATIPCLIENT
 NETCVCLIENT
@@ -696,6 +697,7 @@ with_xml2
 enable_netcv
 enable_satipc
 enable_static
+enable_tsfile
 enable_dvbapi
 enable_axe
 '
@@ -1335,6 +1337,7 @@ Optional Features:
   --disable-netceiver     disable NETCEIVER support
   --disable-satipc        disable satip client support
   --enable-static         enable static compilation
+  --enable-tsfile         enable tsfile
   --disable-dvbapi        disable dvbapi protocol support
   --enable-axe            enable compilation for axe: Inverto IDL400
 
@@ -3966,6 +3969,7 @@ emb="Embedded system:\t\t\t "
 netcv="Netceiver support:\t\t\t "
 satipc="SatIP Client:\t\t\t\t "
 static="Static:\t\t\t\t\t "
+tsfile="TS file support:\t\t\t "
 dvbapi="dvbapi:\t\t\t\t\t "
 axe="axe:\t\t\t\t\t "
 
@@ -4191,6 +4195,19 @@ else
 FM="$FM\n$static disabled"
 fi
 
+# Check whether --enable-tsfile was given.
+if test "${enable_tsfile+set}" = set; then :
+  enableval=$enable_tsfile; TSFILE=1
+else
+  TSFILE=0
+fi
+
+if test "$TSFILE" = "1"; then
+FM="$FM\n$tsfile enabled"
+else
+FM="$FM\n$tsfile disabled"
+fi
+
 # Check whether --enable-dvbapi was given.
 if test "${enable_dvbapi+set}" = set; then :
   enableval=$enable_dvbapi; DVBAPI=0
@@ -4217,6 +4234,7 @@ FM="$FM\n$axe enabled"
 else
 FM="$FM\n$axe disabled"
 fi
+
 
 
 

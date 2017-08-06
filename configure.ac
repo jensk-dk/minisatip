@@ -40,6 +40,7 @@ emb="Embedded system:\t\t\t "
 netcv="Netceiver support:\t\t\t "
 satipc="SatIP Client:\t\t\t\t "
 static="Static:\t\t\t\t\t "
+tsfile="TS file support:\t\t\t "
 dvbapi="dvbapi:\t\t\t\t\t "
 axe="axe:\t\t\t\t\t "
 
@@ -164,6 +165,17 @@ else
 FM="$FM\n$static disabled"
 fi
 
+AC_ARG_ENABLE([tsfile],
+  [AS_HELP_STRING([--enable-tsfile],
+  [enable tsfile])],
+  [TSFILE=1],
+  [TSFILE=0])
+if test "$TSFILE" = "1"; then
+FM="$FM\n$tsfile enabled"
+else
+FM="$FM\n$tsfile disabled"
+fi
+
 AC_ARG_ENABLE([dvbapi],
   [AS_HELP_STRING([--disable-dvbapi],
   [disable dvbapi protocol support])],
@@ -196,6 +208,7 @@ AC_SUBST(EMBEDDED)
 AC_SUBST(NETCVCLIENT)
 AC_SUBST(SATIPCLIENT)
 AC_SUBST(STATIC)
+AC_SUBST(TSFILE)
 AC_SUBST(DVBAPI)
 AC_SUBST(AXE)
 

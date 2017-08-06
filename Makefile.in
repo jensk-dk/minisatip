@@ -9,6 +9,7 @@ DVBCA=@DVBCA@
 SATIPCLIENT=@SATIPCLIENT@
 NETCVCLIENT=@NETCVCLIENT@
 STATIC=@STATIC@
+TSFILE=@TSFILE@
 DVBAPI=@DVBAPI@
 LINUXDVB=@LINUXDVB@
 AXE=@AXE@
@@ -90,6 +91,12 @@ ifeq ($(STATIC),1)
 LDFLAGS+=$(addsuffix .a,$(addprefix -l:lib,$(LIBS)))
 else
 LDFLAGS+=$(addprefix -l,$(LIBS))
+endif
+
+ifeq ($(TSFILE),1)
+OBJS+=tsfile.o
+else
+CFLAGS+=-DDISABLE_TSFILE
 endif
 
 OBJS+=$(OBJS-1)
