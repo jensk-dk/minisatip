@@ -1190,7 +1190,7 @@ int read_http(sockets * s)
 		arg[1] = "/status.html";
 
 	if (!strchr(arg[1] + 1, '/') && !strstr(arg[1], ".."))
-	{
+{
 		char ctype[500];
 		char *f;
 		int nl;

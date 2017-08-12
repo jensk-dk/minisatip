@@ -26,6 +26,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdio.h>
+#include <time.h>
 
 #include "adapter.h"
 #include "tsfile.h"
@@ -35,47 +37,134 @@ extern struct struct_opts opts;
 STsfile *ts[MAX_ADAPTERS];
 #define TS ts[ad->id]
 
-void *tsfile_thread(void *arg) {
-  size_t len = 188*5;
-  size_t lw=0;
-  if (arg)
-    thread_name = (char *) arg;
+long long int get_time_ms() {
+  struct timespec tm;
+  clock_gettime(CLOCK_REALTIME, &tm);
+  return tm.tv_sec*1000 + tm.tv_nsec / 1000000;
+}
 
-  LOGL(0, "tsfile thread %s created", thread_name);
+long long int get_pcr_base(unsigned char *buffer, size_t len, int *pcrPid, int *pcrIndex) {
+  int i=0;
+  do {
+    if(buffer[i] == 0x47) {
+      long long int pcrBase=0;
+      int errorIndicator = buffer[i+1]>>7;
+      int pid = ((buffer[i+1] & 0x1F) << 8) | buffer[i+2];
+      int j=0;
+      //      LOGL(0, "tsfile: pid %X - pcrPid=%X", pid, *pcrPid);
+      if((*pcrPid != -1 && pid != *pcrPid) || errorIndicator==1) {
+	//LOGL(0, "tsfile: skipping pid %X - pcrPid=%d, tei=%d", pid, *pcrPid, errorIndicator);
+	i+=188;
+	continue;
+      }      int adaption_field_control = (buffer[i+3] & 0x30) >> 4;
+      if(adaption_field_control == 0x02 || adaption_field_control == 0x03) {
+	unsigned char adaption_field_length = buffer[i+4];
+	int hasPcr = buffer[i+5] & 0x10; // Is PCR flag set in adaptation field flags?
+	//LOGL(0, "pcrBase hasPcr=%d afc=%d i=%d", hasPcr, adaption_field_control, i);
+	if(hasPcr) {
+	  if(*pcrPid == -1) {
+	    *pcrPid = pid;
+	  }
+	  for(j=0;j<4;j++) {
+	    //LOGL(0, "pcrBase=%X", pcrBase);
+	    pcrBase = pcrBase << 8;
+	    pcrBase += buffer[i+6+j];
+	    //LOGL(0, "pcrBase=%X", pcrBase);
+	  }
+	  
+	  pcrBase = pcrBase << 1;
+	  pcrBase += ((buffer[i+6+j] & 0x80) >> 7);
+	  //LOGL(0, "pcrBase=%X", pcrBase);
+	  *pcrIndex = i;
+	  return pcrBase;
+	}
+      }
+    }
+    i+=188;
+  } while(i<len);
+  return -1; 
+}
+
+void *tsfile_thread(void *arg) {
+  size_t len = 188*100;
+  size_t lw=0;
+  size_t lr=0;
+  FILE *fp;
+  int i=0;
+  STsfile *ts;
+  int pcrIndex=0;
+  int usleepDelay=100*1000;
+  if (arg)
+    ts = (STsfile *) arg;
+
+  LOGL(0, "tsfile thread %s created", ts->threadName);
   unsigned char buffer[len];
   memset(buffer, sizeof(buffer), 0x00);
-  buffer[0]=0x47;
+  ts->pcrPid=-1;
+  ts->lastPcr=-1;
+  //fp = fopen("dvr62.ts", "r");
+  fp = fopen("m6_w9_arte_fr5_6ter.ts", "r");
+  if(fp==0) {
+    LOGL(0, "failed to open dvr62.ts");
+  }
   while(1) {
-	/* write TS data to DVR pipe */
-	lw = write(ts[0]->pwfd, buffer, len);
-	if (lw != len) LOGL(0, "netceiver: not all data forwarded (%s)", strerror(errno));
-	usleep(10000);
+
+    do {
+    /* Read from ts file */
+      LOGL(0, "tsfile: reading %d bytes", len);
+      lr = fread(buffer, 1, len, fp);
+      LOGL(0, "tsfile: read %d wanted %d", lr, len);
+      if(lr != len) {
+	LOGL(0, "tsfile: rewinding file - read %d wanted %d", lr, len);
+	ts->pcrPid=-1;
+	ts->lastPcr=-1;
+	fseek(fp, 0, SEEK_SET);
+	break;
+      }
+      if(buffer[0] != 0x47) {
+	LOGL(0, "tsfile: No sync on TS file - %d.\n", i);
+	fseek(fp, -(len-1), SEEK_CUR);
+      }
+    } while(buffer[0] != 0x47);
+    
+    if(i==188) {
+      LOGL(0, "tsfile: No sync on TS file. Exiting TS read thread :-/\n");
+      break;
+    }
+    long long int pcr = get_pcr_base(buffer, len, &ts->pcrPid, &pcrIndex);
+    long long int now = get_time_ms();
+    if(pcr != -1) {
+      LOGL(0, "tsfile: pcrBase pcrPid=%X pcr=%lld (diff=%lld tdiff=%lld)", ts->pcrPid, pcr, pcr - ts->lastPcr, now - ts->lastPcrMs);
+      ts->lastPcr = pcr;
+      ts->lastPcrMs = now;
+    }
+    if(ts->pcrPid != -1 && ((now - ts->lastPcrMs) > 1000) ) {
+      LOGL(0, "pcrBase No PCR for pid %d for one second - selecting a new", ts->pcrPid);
+      ts->pcrPid = -1;
+    }
+    /* write TS data to DVR pipe */
+    LOGL(0, "tsfile: writing %d bytes to fd=%d", len, ts->pwfd);
+    lw = write(ts->pwfd, buffer, len);
+    if (lw != len) LOGL(0, "tsfile: not all data forwarded (%s)", strerror(errno));
+    LOGL(0, "tsfile: delaying");
+    usleep(100000);
   }
 }
 
 int tsfile_open_device(adapter *ad)
 {
-  pthread_t tid;
-  int rv;
   int pipe_fd[2];
   LOGL(0, "tsfile: open_device");
   TS->want_commit = 0;
   
   /* create DVR pipe for TS thread to write to */
-  if (pipe2 (pipe_fd, O_NONBLOCK)) LOGL (0, "netceiver: creating pipe failed (%s)", strerror(errno));
+  if (pipe2 (pipe_fd, O_NONBLOCK)) LOGL (0, "tsfile: creating pipe failed (%s)", strerror(errno));
   if (-1 == fcntl (pipe_fd[0], F_SETPIPE_SZ, 5 * 188 * 1024))
     LOGL (0, "tsfile pipe buffer size change failed (%s)", strerror(errno));
   ad->dvr = pipe_fd[0]; // read end of pipe
   TS->pwfd = pipe_fd[1]; // write end of pipe
   LOGL(1, "tsfile: created DVR pipe for adapter %d  -> dvr: %d", ad->id, ad->dvr);
-
-  LOGL(1, "tsfile: creating read thread for adapter %d", ad->id);
-  char *name="TSFile";
-  if ((rv = pthread_create(&tid, NULL, &tsfile_thread, name))) {
-    LOG("Failed to create thread: %s, error %d %s", name, rv, strerror(rv));
-
-  }
-
+  LOGL(1, "tsfile: TS->pwfd = %d", TS->pwfd);
   return 0;
 }
 
@@ -83,7 +172,7 @@ int tsfile_set_pid(adapter *ad, uint16_t pid)
 {
 	int aid = ad->id;
 	LOGL(0, "tsfile: set_pid for adapter %d, pid %d", aid, pid);
-	return aid + 100;
+	return aid + 100; // This is really a DMX fd!?!?!
 }
 
 int tsfile_del_pid(int fd, int pid)
@@ -101,7 +190,19 @@ int tsfile_del_pid(int fd, int pid)
 
 void tsfile_commit(adapter *ad)
 {
-  LOGL(0, "tsfile: commit adapter %d", ad->id);
+  pthread_t tid;
+  int rv;
+    LOGL(0, "tsfile: commit adapter %d", ad->id);
+
+    if(!TS->readThread) {
+      LOGL(1, "tsfile: creating read thread for adapter %d", ad->id);
+      snprintf(TS->threadName, 10, "TSFileThread%d", ad->id);
+      if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
+	LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
+      }
+      TS->readThread = tid;
+    }
+
   return;
 }
 
@@ -162,6 +263,7 @@ void find_tsfile_adapter(adapter **a) {
 		ad->fn = 0;
 		ts[na]->want_tune = 0;
 		ts[na]->want_commit = 0;
+		ts[na]->readThread = 0;
 		//		ts[na]->adapter = ad;
 		
 		/* initialize signal status info */

@@ -699,7 +699,7 @@ int send_rtcp(int s_id, int64_t ctime)
 void flush_streamb(streams * sid, unsigned char *buf, int rlen, int64_t ctime)
 {
 	int i, rv = 0, blen, len;
-
+	LOGL(0, "flush_streamb rlen=%d", rlen);
 	if (sid->type == STREAM_HTTP)
 		rv = sockets_write(sid->rsock_id, buf, rlen);
 	else {
@@ -815,7 +815,7 @@ int process_packet(unsigned char *b, adapter *ad)
 
 	if ((!p))
 	{
-		LOGL(5, "process_packet: pid %d not found", _pid);
+	  //LOGL(0, "process_packet: pid %d not found", _pid);
 		ad->pid_err++;
 		return 0;
 	}
@@ -830,7 +830,7 @@ int process_packet(unsigned char *b, adapter *ad)
 
 	if (p->cc != cc)
 	{
-		LOGL(1, "PID Continuity error (adapter %d): pid: %03d, Expected CC: %X, Actual CC: %X",
+		LOGL(0, "PID Continuity error (adapter %d): pid: %03d, Expected CC: %X, Actual CC: %X",
 							ad->id, _pid, p->cc, cc);
 		p->err++;
 	}
@@ -905,16 +905,20 @@ int process_dmx(sockets * s)
 	s->rlen = 0;
 	stime = getTickUs();
 
-	LOGL(6,
+	/*LOGL(0,
 						"process_dmx start flush_all=%d called for adapter %d -> %d out of %d bytes read, %jd ms ago",
 						flush_all, s->sid, rlen, s->lbuf, ms_ago);
 
+LOGL(0,"Here1 ad->sid_cnt = %d, ad->master_sid = %d, sid->len = %d", ad->sid_cnt, ad->master_sid, sid->len);
+*/
 
 #ifndef DISABLE_TABLES
+//LOGL(0,"Calling process_stream");
 	process_stream(ad, rlen);
 #else
 	if (ad->sid_cnt == 1 && ad->master_sid >= 0) // we have just 1 stream, do not check the pids, send everything to the destination
 	{
+	  LOGL(0,"Here2");
 		sid = get_sid(ad->master_sid);
 		if (!sid || sid->enabled != 1)
 		{
@@ -978,8 +982,8 @@ int process_dmx(sockets * s)
 
 	nsecs += getTickUs() - stime;
 	reads++;
-	//      if(!found)LOG("pid not found = %d -> 1:%d 2:%d 1&1f=%d",pid,s->buf[1],s->buf[2],s->buf[1]&0x1f);
-	//      LOG("done send stream");
+	//if(!found)LOG("pid not found = %d -> 1:%d 2:%d 1&1f=%d",pid,s->buf[1],s->buf[2],s->buf[1]&0x1f);
+	//LOG("done send stream");
 	return 0;
 }
 
@@ -992,10 +996,12 @@ int read_dmx(sockets * s)
 	int threshold = opts.udp_threshold;
 	uint64_t stime;
 	uint64_t rtime = getTick();
-
-	if (s->rlen % DVB_FRAME != 0)
+	LOGL(0, "read_dmx: Got %d bytes", s->rlen);
+	if (s->rlen % DVB_FRAME != 0) {
 //		s->rlen = ((int) s->rlen / DVB_FRAME) * DVB_FRAME;
+	  LOGL(0, "read_dmx: No DVB frame :-/");
 		return 0;
+	}
 
 	if (s->rlen == s->lbuf)
 		cnt++;
@@ -1004,6 +1010,7 @@ int read_dmx(sockets * s)
 	ad = get_adapter(s->sid);
 	if (!ad)
 	{
+	  LOGL(0, "read_dmx: No adapter for sid: %d", s->sid);
 		s->rlen = 0;
 		return 0;
 	}
@@ -1040,7 +1047,7 @@ int read_dmx(sockets * s)
 
 	if(ad && ad->wait_new_stream && (rtime - ad->tune_time < 50) ) // check new transponder
 	{
-		LOGL(3, "Flushing adapter buffer of %d bytes after the tune", s->rlen);
+		LOGL(0, "Flushing adapter buffer of %d bytes after the tune", s->rlen);
 		s->rlen = 0;
 		return 0;
 	}
@@ -1048,7 +1055,7 @@ int read_dmx(sockets * s)
 	
 	if(ad->flush)
 		send = 1;
-	LOGL(7,
+	LOGL(0,
 						"read_dmx send=%d, flush_all=%d, cnt %d called for adapter %d -> %d out of %d bytes read, %jd ms ago",
 						send, flush_all, cnt, s->sid, s->rlen, s->lbuf,
 						rtime - ad->rtime);

@@ -12,7 +12,12 @@ typedef struct struct_tsfile
   uint16_t npid[MAX_PIDS];	// active pids
   int lp;				// number of active pids
   char want_tune, want_commit;	// tuning & and PID handling state machine
-  
+  pthread_t readThread;
+  char threadName[20];
+  int pcrPid;
+  long long int lastPcr;
+  int lastPcrByte;
+  long long int lastPcrMs;
 } STsfile;
 
 #endif
