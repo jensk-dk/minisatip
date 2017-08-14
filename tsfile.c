@@ -36,6 +36,7 @@ extern struct struct_opts opts;
 
 STsfile *ts[MAX_ADAPTERS];
 #define TS ts[ad->id]
+#define READ_SIZE 188*100*5
 
 long long int get_time_ms() {
   struct timespec tm;
@@ -86,19 +87,18 @@ long long int get_pcr_base(unsigned char *buffer, size_t len, int *pcrPid, int *
 }
 
 void *tsfile_thread(void *arg) {
-  size_t len = 188*100;
   size_t lw=0;
   size_t lr=0;
   FILE *fp;
   int i=0;
   STsfile *ts;
-  int pcrIndex=0;
-  int usleepDelay=100*1000;
+  int pcrByteIndex=0;
+  long long int usleepDelay=100*1000;
   if (arg)
     ts = (STsfile *) arg;
 
   LOGL(0, "tsfile thread %s created", ts->threadName);
-  unsigned char buffer[len];
+  unsigned char buffer[READ_SIZE];
   memset(buffer, sizeof(buffer), 0x00);
   ts->pcrPid=-1;
   ts->lastPcr=-1;
@@ -108,14 +108,15 @@ void *tsfile_thread(void *arg) {
     LOGL(0, "failed to open dvr62.ts");
   }
   while(1) {
-
+    long long int bufPos = 0;
     do {
     /* Read from ts file */
-      LOGL(0, "tsfile: reading %d bytes", len);
-      lr = fread(buffer, 1, len, fp);
-      LOGL(0, "tsfile: read %d wanted %d", lr, len);
-      if(lr != len) {
-	LOGL(0, "tsfile: rewinding file - read %d wanted %d", lr, len);
+      LOGL(0, "tsfile: reading %d bytes", READ_SIZE);
+      bufPos = ftell(fp); // Index of buffer into file
+      lr = fread(buffer, 1, READ_SIZE, fp);
+      LOGL(0, "tsfile: read %d wanted %d", lr, READ_SIZE);
+      if(lr != READ_SIZE) { // Yeah, we loose the last chunk - so what!
+	LOGL(0, "tsfile: rewinding file - read %d wanted %d", lr, READ_SIZE);
 	ts->pcrPid=-1;
 	ts->lastPcr=-1;
 	fseek(fp, 0, SEEK_SET);
@@ -123,7 +124,7 @@ void *tsfile_thread(void *arg) {
       }
       if(buffer[0] != 0x47) {
 	LOGL(0, "tsfile: No sync on TS file - %d.\n", i);
-	fseek(fp, -(len-1), SEEK_CUR);
+	fseek(fp, -(READ_SIZE-1), SEEK_CUR);
       }
     } while(buffer[0] != 0x47);
     
@@ -131,23 +132,43 @@ void *tsfile_thread(void *arg) {
       LOGL(0, "tsfile: No sync on TS file. Exiting TS read thread :-/\n");
       break;
     }
-    long long int pcr = get_pcr_base(buffer, len, &ts->pcrPid, &pcrIndex);
+    long long int pcr = get_pcr_base(buffer, READ_SIZE, &ts->pcrPid, &pcrByteIndex);
     long long int now = get_time_ms();
+    long long int bytesPerSec = 0;
+    long long int pcrDiff = -100000;
     if(pcr != -1) {
-      LOGL(0, "tsfile: pcrBase pcrPid=%X pcr=%lld (diff=%lld tdiff=%lld)", ts->pcrPid, pcr, pcr - ts->lastPcr, now - ts->lastPcrMs);
+      pcrByteIndex = bufPos + pcrByteIndex;
+      LOGL(0, "tsfile: pcrBase pcrPid=%X pcr=%lld index=%d (diff=%lld tdiff=%lld bdiff=%d)", ts->pcrPid, pcr, pcrByteIndex, pcr - ts->lastPcr, now - ts->lastPcrMs, pcrByteIndex - ts->lastPcrByte);
+      if(ts->lastPcr != -1) {
+	long long int pcrDiff = pcr - ts->lastPcr;
+	long long int byteDiff = pcrByteIndex - ts->lastPcrByte;
+	bytesPerSec = byteDiff * 90000 / pcrDiff;
+	if(pcrDiff > 0 && pcrDiff < 90000) {
+	  LOGL(0, "tsfile: pcrBase Simple PCR diff says %lld bytes/sec = %lld bits/s", bytesPerSec, bytesPerSec*8);
+	  if(bytesPerSec != 0) {
+	    usleepDelay = READ_SIZE * 1000ull *1000 / bytesPerSec;
+	    LOGL(0, "tsfile: pcrBase Computed sleep delay of %lld usec", usleepDelay);
+	  }	  
+	} else {
+	  LOGL(0, "tsfile: pcrBase PCR jump - disregard");
+	}
+      }
       ts->lastPcr = pcr;
       ts->lastPcrMs = now;
+      ts->lastPcrByte = pcrByteIndex;
     }
-    if(ts->pcrPid != -1 && ((now - ts->lastPcrMs) > 1000) ) {
-      LOGL(0, "pcrBase No PCR for pid %d for one second - selecting a new", ts->pcrPid);
+    if(ts->pcrPid != -1 && ((now - ts->lastPcrMs) > 2000) ) {
+      LOGL(0, "tsfile: pcrBase No PCR for pid %d for one second - selecting a new", ts->pcrPid);
       ts->pcrPid = -1;
+      ts->lastPcr = -1;
+      ts->lastPcrMs = now;
     }
     /* write TS data to DVR pipe */
-    LOGL(0, "tsfile: writing %d bytes to fd=%d", len, ts->pwfd);
-    lw = write(ts->pwfd, buffer, len);
-    if (lw != len) LOGL(0, "tsfile: not all data forwarded (%s)", strerror(errno));
-    LOGL(0, "tsfile: delaying");
-    usleep(100000);
+    LOGL(0, "tsfile: writing %d bytes to fd=%d", READ_SIZE, ts->pwfd);
+    lw = write(ts->pwfd, buffer, READ_SIZE);
+    if (lw != READ_SIZE) LOGL(0, "tsfile: not all data forwarded (%s)", strerror(errno));
+    LOGL(0, "tsfile: delaying %d uSecs", usleepDelay);
+    usleep(usleepDelay);
   }
 }
 
@@ -159,7 +180,7 @@ int tsfile_open_device(adapter *ad)
   
   /* create DVR pipe for TS thread to write to */
   if (pipe2 (pipe_fd, O_NONBLOCK)) LOGL (0, "tsfile: creating pipe failed (%s)", strerror(errno));
-  if (-1 == fcntl (pipe_fd[0], F_SETPIPE_SZ, 5 * 188 * 1024))
+  if (-1 == fcntl (pipe_fd[0], F_SETPIPE_SZ, 5 * READ_SIZE))
     LOGL (0, "tsfile pipe buffer size change failed (%s)", strerror(errno));
   ad->dvr = pipe_fd[0]; // read end of pipe
   TS->pwfd = pipe_fd[1]; // write end of pipe
