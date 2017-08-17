@@ -34,9 +34,49 @@
 
 extern struct struct_opts opts;
 
+STsFileFreq fileFreqs[MAX_ADAPTERS];
+
 STsfile *ts[MAX_ADAPTERS];
 #define TS ts[ad->id]
 #define READ_SIZE 188*100*5
+
+// Find file corresponding to tuner parameters
+// For now we only compare frequency, and the other parameters are don't cares
+// but we could be strict here if we wanted to
+int find_tsfile(transponder *tp) {
+  for(int i=0;i<MAX_ADAPTERS;i++) {
+    if(fileFreqs[i].tp.freq == tp->freq) {
+      return i;
+    }
+    return -1;
+  }
+}
+
+// Returns number of adapters
+int parse_config_file() {
+  FILE* fp;
+  char buffer[255];
+
+  // Test code
+  fileFreqs[0].tp.freq = 538000;
+  strncpy(fileFreqs[0].fileName, "m6_w9_arte_fr5_6ter.ts", 255);
+  return 1;
+  
+  /// Actual code
+  
+  fp = fopen("tsfiles.cnf", "r");
+
+  if(fp==0) {
+    LOGL(0, "No tsfiles.cnf - no tsfile adapters created");
+    return 0;
+  }
+  
+  while(fgets(buffer, 255, (FILE*) fp)) {
+    printf("%s\n", buffer);
+  }
+  
+  fclose(fp);
+}
 
 long long int get_time_ms() {
   struct timespec tm;
@@ -107,7 +147,7 @@ void *tsfile_thread(void *arg) {
   if(fp==0) {
     LOGL(0, "failed to open dvr62.ts");
   }
-  while(1) {
+  while(ts->runThread) {
     long long int bufPos = 0;
     do {
     /* Read from ts file */
@@ -170,6 +210,8 @@ void *tsfile_thread(void *arg) {
     LOGL(0, "tsfile: delaying %d uSecs", usleepDelay);
     usleep(usleepDelay);
   }
+  fclose(fp);
+  LOGL(0, "tsfile thread %s exiting", ts->threadName);
 }
 
 int tsfile_open_device(adapter *ad)
@@ -184,6 +226,7 @@ int tsfile_open_device(adapter *ad)
     LOGL (0, "tsfile pipe buffer size change failed (%s)", strerror(errno));
   ad->dvr = pipe_fd[0]; // read end of pipe
   TS->pwfd = pipe_fd[1]; // write end of pipe
+  TS->fileFreqIndex = -1;
   LOGL(1, "tsfile: created DVR pipe for adapter %d  -> dvr: %d", ad->id, ad->dvr);
   LOGL(1, "tsfile: TS->pwfd = %d", TS->pwfd);
   return 0;
@@ -211,34 +254,43 @@ int tsfile_del_pid(int fd, int pid)
 
 void tsfile_commit(adapter *ad)
 {
-  pthread_t tid;
-  int rv;
-    LOGL(0, "tsfile: commit adapter %d", ad->id);
-
-    if(!TS->readThread) {
-      LOGL(1, "tsfile: creating read thread for adapter %d", ad->id);
-      snprintf(TS->threadName, 10, "TSFileThread%d", ad->id);
-      if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
-	LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
-      }
-      TS->readThread = tid;
-    }
-
+  
+  LOGL(0, "tsfile: commit adapter %d", ad->id);  
   return;
 }
 
 int tsfile_tune(int aid, transponder * tp)
 {
+  pthread_t tid;
+  int rv;
+  void *retVal;
   LOGL(0, "tsfile: tune adapter id=%d freq=%d", aid, tp->freq);
   adapter *ad = get_adapter(aid);
   if (!ad)
     return 1;
-  if(tp->freq == 538000) { // For now we only play back on 538MHz, which is a UHF channel
+  
+  if(TS->readThread) {
+    LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
+    TS->runThread = 0;
+    pthread_join(TS->readThread, &retVal);
+    LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
+  }
+    
+  
+  if((TS->fileFreqIndex = find_tsfile(tp)) != -1) {
+    LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
+    TS->runThread = 1;
+    snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
+    if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
+      LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
+    }
+    TS->readThread = tid;
     ad->status = FE_HAS_SIGNAL;
     ad->strength = 100;
     ad->snr = 64;
     ad->ber = 1000000;
   } else {
+    LOGL(0, "tsfile: No matching frequency for adapter %d at freq=%d - not creating read thread", ad->id, tp->freq);
     ad->strength = 0;
     ad->status = 0;
     ad->snr = 0;
@@ -261,11 +313,11 @@ int tsfile_close(adapter *ad)
 void find_tsfile_adapter(adapter **a) {
 	int i, k, n, na;
 	adapter *ad;
-	char dbuf[2048];
 
+	int numTuners = parse_config_file();
 
-	LOGL(0, "%s", dbuf);
-
+	LOGL(0, "tsfile: %i tuners", numTuners);
+	
 	// add tsfile "tuners" to the list of adapters
 	na = a_count;
 	LOGL(0, "tsfile: adding ");
@@ -311,7 +363,6 @@ void find_tsfile_adapter(adapter **a) {
 		na++; // increase number of tuner count
 		a_count = na;
 	}
-	LOGL(0, "%s", dbuf);
 
 	for (; na < MAX_ADAPTERS; na++)
 		if (a[na])
