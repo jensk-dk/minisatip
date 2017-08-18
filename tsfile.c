@@ -157,7 +157,7 @@ void *tsfile_thread(void *arg) {
       ts->lastPcrMs = now;
       ts->lastPcrByte = pcrByteIndex;
     }
-    if(ts->pcrPid != -1 && ((now - ts->lastPcrMs) > 2000) ) {
+    if(ts->pcrPid != -1 && ((now - ts->lastPcrMs) > 1000) ) {
       LOGL(0, "tsfile: pcrBase No PCR for pid %d for one second - selecting a new", ts->pcrPid);
       ts->pcrPid = -1;
       ts->lastPcr = -1;

@@ -996,7 +996,7 @@ int read_dmx(sockets * s)
 	int threshold = opts.udp_threshold;
 	uint64_t stime;
 	uint64_t rtime = getTick();
-	LOGL(0, "read_dmx: Got %d bytes", s->rlen);
+	//LOGL(0, "read_dmx: Got %d bytes", s->rlen);
 	if (s->rlen % DVB_FRAME != 0) {
 //		s->rlen = ((int) s->rlen / DVB_FRAME) * DVB_FRAME;
 	  LOGL(0, "read_dmx: No DVB frame :-/");
@@ -1010,7 +1010,7 @@ int read_dmx(sockets * s)
 	ad = get_adapter(s->sid);
 	if (!ad)
 	{
-	  LOGL(0, "read_dmx: No adapter for sid: %d", s->sid);
+	  //LOGL(0, "read_dmx: No adapter for sid: %d", s->sid);
 		s->rlen = 0;
 		return 0;
 	}
@@ -1055,12 +1055,13 @@ int read_dmx(sockets * s)
 	
 	if(ad->flush)
 		send = 1;
+	/*
 	LOGL(0,
 						"read_dmx send=%d, flush_all=%d, cnt %d called for adapter %d -> %d out of %d bytes read, %jd ms ago",
 						send, flush_all, cnt, s->sid, s->rlen, s->lbuf,
 						rtime - ad->rtime);
 
-
+	*/
 
 
 	if (!send)

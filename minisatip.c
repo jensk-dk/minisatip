@@ -1085,7 +1085,7 @@ int read_http(sockets * s)
 		"<friendlyName>%s</friendlyName><manufacturer>cata</manufacturer>"
 		"<manufacturerURL>http://github.com/catalinii/minisatip</manufacturerURL>"
 		"<modelDescription>%s for Linux</modelDescription><modelName>%s</modelName>"
-		"<modelNumber>1.1</modelNumber><modelURL></modelURL><serialNumber>1</serialNumber><UDN>uuid:%s</UDN>"
+		"<modelNumber>1.1</modelNumber><modelURL>Diller</modelURL><serialNumber>1</serialNumber><UDN>uuid:%s</UDN>"
 		"<iconList>"
 		"<icon><mimetype>image/png</mimetype><width>48</width><height>48</height><depth>24</depth><url>/sm.png</url></icon>"
 		"<icon><mimetype>image/png</mimetype><width>120</width><height>120</height><depth>24</depth><url>/lr.png</url></icon>"
@@ -1468,8 +1468,8 @@ int main(int argc, char *argv[])
 	if (si < 0 || si1 < 0)
 		FAIL("sockets_add failed for ssdp");
 
-	sockets_timeout(si, 60 * 1000);
-	set_sockets_rtime(si, -60 * 1000);
+	sockets_timeout(si, 4 * 1000);
+	set_sockets_rtime(si, -4 * 1000);
 	if (0 > sockets_add(rtsp, NULL, -1, TYPE_SERVER, (socket_action) new_rtsp,
 																					NULL, (socket_action) close_http))
 		FAIL("sockets_add failed for rtsp");
