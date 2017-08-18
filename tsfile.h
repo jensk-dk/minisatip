@@ -6,6 +6,13 @@
 
 void find_tsfile_adapter(adapter **a);
 
+// One per Tuning Params->Filename in config file
+typedef struct struct_tsfile_freq {
+  transponder tp;
+  char fileName[255];
+} STsFileFreq;
+
+// One per TSFile adapter
 typedef struct struct_tsfile
 {
   int pwfd;			// file descriptor to writeable end of pipe for TS data
@@ -18,6 +25,8 @@ typedef struct struct_tsfile
   long long int lastPcr;
   int lastPcrByte;
   long long int lastPcrMs;
+  int fileFreqIndex; // Index into fileFreqs or -1 if no current freq/file
+  int runThread;
 } STsfile;
 
 #endif
