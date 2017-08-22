@@ -20,3 +20,6 @@ NUM_TUNERS = 2
 
 ?freq=538&bw=8&msys=dvbt&tmode=2k&mtype=64qam&gi=132&fec=23
 m6_w9_arte_fr5_6ter.ts
+
+?freq=530&bw=8&msys=dvbt&tmode=2k&mtype=64qam&gi=132&fec=23
+m6_w9_arte_fr5_6ter.ts

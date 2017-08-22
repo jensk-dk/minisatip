@@ -67,11 +67,12 @@ char *trimwhitespace(char *str)
 // but we could be strict here if we wanted to
 int find_tsfile(transponder *tp) {
   for(int i=0;i<MAX_ADAPTERS;i++) {
+    printf("%d Comparing %d %d\n", i, fileFreqs[i].tp.freq, tp->freq);
     if(fileFreqs[i].tp.freq == tp->freq) {
       return i;
     }
-    return -1;
   }
+  return -1;
 }
 
 // Returns number of adapters
@@ -79,7 +80,7 @@ int parse_config_file() {
   FILE* fp;
   char buffer[1024];
   int numTuners=1;
-  
+ 
   // Test code
   //fileFreqs[0].tp.freq = 538000;
   //strncpy(fileFreqs[0].fileName, "m6_w9_arte_fr5_6ter.ts", 1024);
@@ -123,7 +124,7 @@ int parse_config_file() {
       if(numParams != numFilenames) {
 	LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
       }
-      int retVal = detect_dvb_parameters(realChars,  &fileFreqs[0].tp);
+      int retVal = detect_dvb_parameters(realChars,  &fileFreqs[numParams].tp);
       if(retVal != 0) {
 	LOGL(0, "tsfile.cnf - Error parsing params:", realChars);
       }
@@ -133,14 +134,17 @@ int parse_config_file() {
     // Filename
     if(numParams-1 != numFilenames) {
       LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
-      FILE *fp2= fopen("realChars", "r");
+    } else {
+      FILE *fp2= fopen(realChars, "r");
       if(fp2==0) {
 	LOGL(0, "tsfile.cnf line %d: Unable to open file %s for frequency %d", lineNum, realChars, fileFreqs[numFilenames].tp.freq);
       } else {
 	strncpy(fileFreqs[numFilenames].fileName, realChars, 1024);
+	printf("fileFreqs[%d].fileName is now %s\n", numFilenames, fileFreqs[numFilenames].fileName);
+	fclose(fp2);
       }
-      numFilenames++;
     }
+    numFilenames++;
   }
   
   fclose(fp);
@@ -202,19 +206,20 @@ void *tsfile_thread(void *arg) {
   int i=0;
   STsfile *ts;
   int pcrByteIndex=0;
-  long long int usleepDelay=100*1000;
+  long long int usleepDelay=10*1000;
   if (arg)
     ts = (STsfile *) arg;
-
-  LOGL(0, "tsfile thread %s created", ts->threadName);
+  char *fileName = fileFreqs[ts->fileFreqIndex].fileName;
+  printf("fileFreqIndex = %d\n", ts->fileFreqIndex);
+  LOGL(0, "tsfile thread %s created for file %s", ts->threadName, fileName);
   unsigned char buffer[READ_SIZE];
   memset(buffer, sizeof(buffer), 0x00);
   ts->pcrPid=-1;
   ts->lastPcr=-1;
   //fp = fopen("dvr62.ts", "r");
-  fp = fopen("m6_w9_arte_fr5_6ter.ts", "r");
+  fp = fopen(fileName, "r");
   if(fp==0) {
-    LOGL(0, "failed to open dvr62.ts");
+    LOGL(0, "failed to open ts file: %s", fileName);
   }
   while(ts->runThread) {
     long long int bufPos = 0;
@@ -364,6 +369,7 @@ void tsfile_commit(adapter *ad)
   void *retVal;
   int rv;
 
+#if 0
   if(numPids == 0) {
     if(TS->readThread) {
       LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
@@ -372,27 +378,28 @@ void tsfile_commit(adapter *ad)
       LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
     }
   } else {
-  if(TS->fileFreqIndex != -1) {
-    LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
-    TS->runThread = 1;
-    snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
-    if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
-      LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
+    if(!TS->readThread) {
+      if(TS->fileFreqIndex != -1) {
+	LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
+	TS->runThread = 1;
+	snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
+	if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
+	  LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
+	}
+	TS->readThread = tid;
+	ad->status = FE_HAS_SIGNAL;
+	ad->strength = 100;
+	ad->snr = 64;
+	ad->ber = 1000000;
+      } else {
+	ad->strength = 0;
+	ad->status = 0;
+	ad->snr = 0;
+	ad->ber = 0;
+      }
     }
-    TS->readThread = tid;
-    ad->status = FE_HAS_SIGNAL;
-    ad->strength = 100;
-    ad->snr = 64;
-    ad->ber = 1000000;
-  } else {
-    ad->strength = 0;
-    ad->status = 0;
-    ad->snr = 0;
-    ad->ber = 0;
   }
-  #endif
-  }
-
+#endif
 
   
   return;
@@ -407,16 +414,19 @@ int tsfile_tune(int aid, transponder * tp)
   adapter *ad = get_adapter(aid);
   if (!ad)
     return 1;
-  
+
+#if 1
   if(TS->readThread) {
     LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
     TS->runThread = 0;
     pthread_join(TS->readThread, &retVal);
     LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
   }
-    
-  
-  if((TS->fileFreqIndex = find_tsfile(tp)) != -1) {
+#endif
+  TS->fileFreqIndex = find_tsfile(tp);
+  LOGL(0, "Found fileFreqIndex = %d\n", TS->fileFreqIndex);
+  #if 1
+  if(TS->fileFreqIndex != -1) {
     LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
     TS->runThread = 1;
     snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
@@ -435,6 +445,7 @@ int tsfile_tune(int aid, transponder * tp)
     ad->snr = 0;
     ad->ber = 0;
   }
+#endif
   return 0;
 }
 
