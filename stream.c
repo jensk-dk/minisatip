@@ -1055,6 +1055,7 @@ int read_dmx(sockets * s)
 	
 	if(ad->flush)
 		send = 1;
+
 	/*
 	LOGL(0,
 						"read_dmx send=%d, flush_all=%d, cnt %d called for adapter %d -> %d out of %d bytes read, %jd ms ago",

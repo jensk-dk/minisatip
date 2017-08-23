@@ -28,6 +28,8 @@
 #include <errno.h>
 #include <stdio.h>
 #include <time.h>
+#include <ctype.h>
+#include <stdlib.h>
 
 #include "adapter.h"
 #include "tsfile.h"
@@ -40,42 +42,113 @@ STsfile *ts[MAX_ADAPTERS];
 #define TS ts[ad->id]
 #define READ_SIZE 188*100*5
 
+char *trimwhitespace(char *str)
+{
+  char *end;
+  // Trim leading space
+  while(isspace((unsigned char)*str)) str++;
+
+  if(*str == 0)  // All spaces?
+    return str;
+
+  // Trim trailing space
+  end = str + strlen(str) - 1;
+  while(end > str && isspace((unsigned char)*end)) end--;
+
+  // Write new null terminator
+  *(end+1) = 0;
+
+  return str;
+}
+
+
 // Find file corresponding to tuner parameters
 // For now we only compare frequency, and the other parameters are don't cares
 // but we could be strict here if we wanted to
 int find_tsfile(transponder *tp) {
   for(int i=0;i<MAX_ADAPTERS;i++) {
+    printf("%d Comparing %d %d\n", i, fileFreqs[i].tp.freq, tp->freq);
     if(fileFreqs[i].tp.freq == tp->freq) {
       return i;
     }
-    return -1;
   }
+  return -1;
 }
 
 // Returns number of adapters
 int parse_config_file() {
   FILE* fp;
-  char buffer[255];
-
+  char buffer[1024];
+  int numTuners=1;
+ 
   // Test code
-  fileFreqs[0].tp.freq = 538000;
-  strncpy(fileFreqs[0].fileName, "m6_w9_arte_fr5_6ter.ts", 255);
-  return 1;
+  //fileFreqs[0].tp.freq = 538000;
+  //strncpy(fileFreqs[0].fileName, "m6_w9_arte_fr5_6ter.ts", 1024);
+  //return 1;
   
   /// Actual code
   
-  fp = fopen("tsfiles.cnf", "r");
+  fp = fopen("tsfile.cnf", "r");
 
   if(fp==0) {
-    LOGL(0, "No tsfiles.cnf - no tsfile adapters created");
+    LOGL(0, "No tsfile.cnf - no tsfile adapters created");
     return 0;
   }
-  
-  while(fgets(buffer, 255, (FILE*) fp)) {
+  int numParams = 0;
+  int numFilenames = 0;
+  int lineNum=0;
+  const char *numTunersKeyword = "NUM_TUNERS";
+  while(fgets(buffer, 1024, (FILE*) fp)) {
+    lineNum++;
     printf("%s\n", buffer);
+    char *realChars = buffer;
+    realChars = trimwhitespace(realChars);
+
+    char *savePtr;
+    // Comment
+    if(realChars[0] == '#' || (!strncmp(realChars, "//", 2)) || strlen(realChars)==0) {
+      continue;
+    }
+    // NUM_TUNERS
+    if(!strncmp(realChars, numTunersKeyword, strlen(numTunersKeyword))) {
+      char *keyword = strtok_r(realChars, "=", &savePtr);
+      char *value = strtok_r(NULL, "=", &savePtr);
+      if(value != NULL) {
+	numTuners = atoi(value);
+      }
+      LOGL(0, "numTuners set to %d from tsfile.cnf", numTuners);
+      continue;
+    }
+    // Tuner params
+    if(realChars[0] == '?') {
+      if(numParams != numFilenames) {
+	LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
+      }
+      int retVal = detect_dvb_parameters(realChars,  &fileFreqs[numParams].tp);
+      if(retVal != 0) {
+	LOGL(0, "tsfile.cnf - Error parsing params:", realChars);
+      }
+      numParams++;
+      continue;
+    }
+    // Filename
+    if(numParams-1 != numFilenames) {
+      LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
+    } else {
+      FILE *fp2= fopen(realChars, "r");
+      if(fp2==0) {
+	LOGL(0, "tsfile.cnf line %d: Unable to open file %s for frequency %d", lineNum, realChars, fileFreqs[numFilenames].tp.freq);
+      } else {
+	strncpy(fileFreqs[numFilenames].fileName, realChars, 1024);
+	printf("fileFreqs[%d].fileName is now %s\n", numFilenames, fileFreqs[numFilenames].fileName);
+	fclose(fp2);
+      }
+    }
+    numFilenames++;
   }
   
   fclose(fp);
+  return numTuners;
 }
 
 long long int get_time_ms() {
@@ -133,28 +206,29 @@ void *tsfile_thread(void *arg) {
   int i=0;
   STsfile *ts;
   int pcrByteIndex=0;
-  long long int usleepDelay=100*1000;
+  long long int usleepDelay=10*1000;
   if (arg)
     ts = (STsfile *) arg;
-
-  LOGL(0, "tsfile thread %s created", ts->threadName);
+  char *fileName = fileFreqs[ts->fileFreqIndex].fileName;
+  printf("fileFreqIndex = %d\n", ts->fileFreqIndex);
+  LOGL(0, "tsfile thread %s created for file %s", ts->threadName, fileName);
   unsigned char buffer[READ_SIZE];
   memset(buffer, sizeof(buffer), 0x00);
   ts->pcrPid=-1;
   ts->lastPcr=-1;
   //fp = fopen("dvr62.ts", "r");
-  fp = fopen("m6_w9_arte_fr5_6ter.ts", "r");
+  fp = fopen(fileName, "r");
   if(fp==0) {
-    LOGL(0, "failed to open dvr62.ts");
+    LOGL(0, "failed to open ts file: %s", fileName);
   }
   while(ts->runThread) {
     long long int bufPos = 0;
     do {
     /* Read from ts file */
-      LOGL(0, "tsfile: reading %d bytes", READ_SIZE);
+      //LOGL(0, "tsfile: reading %d bytes", READ_SIZE);
       bufPos = ftell(fp); // Index of buffer into file
       lr = fread(buffer, 1, READ_SIZE, fp);
-      LOGL(0, "tsfile: read %d wanted %d", lr, READ_SIZE);
+      //LOGL(0, "tsfile: read %d wanted %d", lr, READ_SIZE);
       if(lr != READ_SIZE) { // Yeah, we loose the last chunk - so what!
 	LOGL(0, "tsfile: rewinding file - read %d wanted %d", lr, READ_SIZE);
 	ts->pcrPid=-1;
@@ -178,19 +252,19 @@ void *tsfile_thread(void *arg) {
     long long int pcrDiff = -100000;
     if(pcr != -1) {
       pcrByteIndex = bufPos + pcrByteIndex;
-      LOGL(0, "tsfile: pcrBase pcrPid=%X pcr=%lld index=%d (diff=%lld tdiff=%lld bdiff=%d)", ts->pcrPid, pcr, pcrByteIndex, pcr - ts->lastPcr, now - ts->lastPcrMs, pcrByteIndex - ts->lastPcrByte);
+      //LOGL(0, "tsfile: pcrBase pcrPid=%X pcr=%lld index=%d (diff=%lld tdiff=%lld bdiff=%d)", ts->pcrPid, pcr, pcrByteIndex, pcr - ts->lastPcr, now - ts->lastPcrMs, pcrByteIndex - ts->lastPcrByte);
       if(ts->lastPcr != -1) {
 	long long int pcrDiff = pcr - ts->lastPcr;
 	long long int byteDiff = pcrByteIndex - ts->lastPcrByte;
 	bytesPerSec = byteDiff * 90000 / pcrDiff;
 	if(pcrDiff > 0 && pcrDiff < 90000) {
-	  LOGL(0, "tsfile: pcrBase Simple PCR diff says %lld bytes/sec = %lld bits/s", bytesPerSec, bytesPerSec*8);
+	  //LOGL(0, "tsfile: pcrBase Simple PCR diff says %lld bytes/sec = %lld bits/s", bytesPerSec, bytesPerSec*8);
 	  if(bytesPerSec != 0) {
 	    usleepDelay = READ_SIZE * 1000ull *1000 / bytesPerSec;
-	    LOGL(0, "tsfile: pcrBase Computed sleep delay of %lld usec", usleepDelay);
+	    //LOGL(0, "tsfile: pcrBase Computed sleep delay of %lld usec", usleepDelay);
 	  }	  
 	} else {
-	  LOGL(0, "tsfile: pcrBase PCR jump - disregard");
+	  //LOGL(0, "tsfile: pcrBase PCR jump - disregard");
 	}
       }
       ts->lastPcr = pcr;
@@ -204,7 +278,7 @@ void *tsfile_thread(void *arg) {
       ts->lastPcrMs = now;
     }
     /* write TS data to DVR pipe */
-    LOGL(0, "tsfile: writing %d bytes to fd=%d", READ_SIZE, ts->pwfd);
+    //LOGL(0, "tsfile: writing %d bytes to fd=%d", READ_SIZE, ts->pwfd);
     lw = write(ts->pwfd, buffer, READ_SIZE);
     if (lw != READ_SIZE) LOGL(0, "tsfile: not all data forwarded (%s)", strerror(errno));
     LOGL(0, "tsfile: delaying %d uSecs", usleepDelay);
@@ -229,6 +303,10 @@ int tsfile_open_device(adapter *ad)
   TS->fileFreqIndex = -1;
   LOGL(1, "tsfile: created DVR pipe for adapter %d  -> dvr: %d", ad->id, ad->dvr);
   LOGL(1, "tsfile: TS->pwfd = %d", TS->pwfd);
+
+  for(int i=0;i<MAX_PIDS;i++) {
+    TS->npid[i] = 0xFFFF;
+  }
   return 0;
 }
 
@@ -236,6 +314,23 @@ int tsfile_set_pid(adapter *ad, uint16_t pid)
 {
 	int aid = ad->id;
 	LOGL(0, "tsfile: set_pid for adapter %d, pid %d", aid, pid);
+	int foundPid=0;
+	for(int i=0;i<MAX_PIDS;i++) {
+	    if(TS->npid[i] == pid) {
+	      printf("Already found at %d\n", i);
+	      foundPid=1;
+	      break;
+	    }
+	}
+	if(foundPid==0) {
+	  for(int i=0;i<MAX_PIDS;i++) {
+	    if(TS->npid[i] == 0xFFFF) {
+	      printf("Set at %d\n", i);
+	      TS->npid[i] = pid;
+	      break;
+	    }
+	  }
+	}
 	return aid + 100; // This is really a DMX fd!?!?!
 }
 
@@ -247,7 +342,14 @@ int tsfile_del_pid(int fd, int pid)
 	ad = get_adapter(fd);
 	if (!ad)
 		return 0;
-	LOGL(3, "tsfile: del_pid for aid %d, pid %d", fd, pid);
+	LOGL(0, "tsfile: del_pid for aid %d, pid %d", fd, pid);
+	for(int i=0;i<MAX_PIDS;i++) {
+	  if(TS->npid[i] == pid) {
+	    printf("Deleted at %d\n", i);
+	    TS->npid[i] = 0xFFFF;
+	    break;
+	  }
+	}
 
 	return 0;
 }
@@ -255,7 +357,51 @@ int tsfile_del_pid(int fd, int pid)
 void tsfile_commit(adapter *ad)
 {
   
-  LOGL(0, "tsfile: commit adapter %d", ad->id);  
+
+  int numPids=0;
+  for(int i=0;i<MAX_PIDS;i++) {
+    if(TS->npid[i] != 0xFFFF) {
+      numPids++;
+    }
+  }
+  LOGL(0, "tsfile: commit adapter %d - numPids=%d", ad->id, numPids);
+
+  void *retVal;
+  int rv;
+
+#if 0
+  if(numPids == 0) {
+    if(TS->readThread) {
+      LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
+      TS->runThread = 0;
+      pthread_join(TS->readThread, &retVal);
+      LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
+    }
+  } else {
+    if(!TS->readThread) {
+      if(TS->fileFreqIndex != -1) {
+	LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
+	TS->runThread = 1;
+	snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
+	if ((rv = pthread_create(&tid, NULL, &tsfile_thread, TS))) {
+	  LOG("Failed to create thread: %s, error %d %s", TS->threadName, rv, strerror(rv));    
+	}
+	TS->readThread = tid;
+	ad->status = FE_HAS_SIGNAL;
+	ad->strength = 100;
+	ad->snr = 64;
+	ad->ber = 1000000;
+      } else {
+	ad->strength = 0;
+	ad->status = 0;
+	ad->snr = 0;
+	ad->ber = 0;
+      }
+    }
+  }
+#endif
+
+  
   return;
 }
 
@@ -268,16 +414,19 @@ int tsfile_tune(int aid, transponder * tp)
   adapter *ad = get_adapter(aid);
   if (!ad)
     return 1;
-  
+
+#if 1
   if(TS->readThread) {
     LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
     TS->runThread = 0;
     pthread_join(TS->readThread, &retVal);
     LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
   }
-    
-  
-  if((TS->fileFreqIndex = find_tsfile(tp)) != -1) {
+#endif
+  TS->fileFreqIndex = find_tsfile(tp);
+  LOGL(0, "Found fileFreqIndex = %d\n", TS->fileFreqIndex);
+  #if 1
+  if(TS->fileFreqIndex != -1) {
     LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
     TS->runThread = 1;
     snprintf(TS->threadName, 20, "TSFileThread%d", ad->id);
@@ -296,6 +445,7 @@ int tsfile_tune(int aid, transponder * tp)
     ad->snr = 0;
     ad->ber = 0;
   }
+#endif
   return 0;
 }
 
@@ -306,8 +456,25 @@ fe_delivery_system_t tsfile_delsys(int aid, int fd, fe_delivery_system_t *sys)
 
 int tsfile_close(adapter *ad)
 {
-	LOGL(1, "tsfile: delete receiver instance for adapter %d", ad->id);
-	return 0;
+    void *retVal;
+    
+    LOGL(0, "tsfile: delete receiver instance for adapter %d", ad->id);
+    if(TS->readThread) {
+      LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
+      TS->runThread = 0;
+      pthread_join(TS->readThread, &retVal);
+      LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
+    }
+    
+    /* close DVR pipe */
+    close(TS->pwfd);
+    close(ad->dvr);
+    
+    ad->strength = 0;
+    ad->status = 0;
+    ad->snr = 0;
+    ad->ber = 0;
+    return 0;
 }
 
 void find_tsfile_adapter(adapter **a) {
@@ -321,7 +488,7 @@ void find_tsfile_adapter(adapter **a) {
 	// add tsfile "tuners" to the list of adapters
 	na = a_count;
 	LOGL(0, "tsfile: adding ");
-	for (n = 0; n < 1; n++)
+	for (n = 0; n < numTuners; n++)
 	{
 
 		if (na >= MAX_ADAPTERS)

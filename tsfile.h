@@ -9,7 +9,7 @@ void find_tsfile_adapter(adapter **a);
 // One per Tuning Params->Filename in config file
 typedef struct struct_tsfile_freq {
   transponder tp;
-  char fileName[255];
+  char fileName[1024];
 } STsFileFreq;
 
 // One per TSFile adapter

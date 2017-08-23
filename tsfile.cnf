@@ -1,0 +1,25 @@
+# This is a configfile for the tsfile feature of minisatip
+// Comments begin with hash (#) or double slash (//)
+
+# First we optionally specify the number of tuners, i.e. the number
+# of concurrent tuning requests that can be served (this is the number of
+# adapter instances inside minisatip). Usually the number of tuners is a
+# physical resource, but since this is software, the limitations lie
+# elsewhere - in CPU power or memory/disc/network bandwidth.
+# If not specified, one tuner is assumed
+NUM_TUNERS = 2
+
+# Next follows alternating lines of Sat>IP tuning parameters and corresponding
+# filenames. Specify as many or as few parameters as you like, but freq and
+# probably also msys are necessary to achieve a match.
+# The files are expected to be MPEG2-TS files of 188 bytes packets.
+# The playback system will attempt to match the file's original bitrate using
+# a simple PCR-based delay - for best results do not strip null packets.
+# Filenames are relative to the dir where minisatip server is launched, as is
+# this configfile currently (will be a cmd line option).
+
+?freq=538&bw=8&msys=dvbt&tmode=2k&mtype=64qam&gi=132&fec=23
+m6_w9_arte_fr5_6ter.ts
+
+?freq=530&bw=8&msys=dvbt&tmode=2k&mtype=64qam&gi=132&fec=23
+m6_w9_arte_fr5_6ter.ts
