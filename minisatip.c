@@ -53,7 +53,9 @@ struct struct_opts opts;
 #define DESC_XML "desc.xml"
 #define PID_NAME "/var/run/%s.pid"
 char version[] = VERSION;
-char app_name[] = "minisatip";
+char app_name[256] = "minisatip";
+char sConfFile[256] = "tsfile.cnf";
+const char * gConfFile = (const char *) &sConfFile;
 char pid_file[50];
 extern sockets s[MAX_SOCKS];
 char public[] = "Public: OPTIONS, DESCRIBE, SETUP, PLAY, TEARDOWN";
@@ -66,6 +68,8 @@ static const struct option long_options[] =
 	{ "check-signal", no_argument, NULL, 'z' },
 	{ "clean-psi", no_argument, NULL, 't' },
 	{ "log", no_argument, NULL, 'l' },
+	{ "name", required_argument, NULL, 'N' },
+	{ "config", required_argument, NULL, 'c' },
 	{ "buffer", required_argument, NULL, 'b' },
 	{ "threshold", required_argument, NULL, 'H' },
 	{ "enable-adapters", required_argument, NULL, 'e' },
@@ -112,6 +116,8 @@ static const struct option long_options[] =
 #define HTTPSERVER_OPT 'w'
 #define HTTPPORT_OPT 'x'
 #define LOG_OPT 'l'
+#define NAME_OPT 'N'
+#define CONFIG_OPT 'c'
 #define HELP_OPT 'h'
 #define PLAYLIST_OPT 'p'
 #define DVBS2_ADAPTERS_OPT 'a'
@@ -491,7 +497,7 @@ void set_options(int argc, char *argv[])
 	memset(opts.playlist, 0, sizeof(opts.playlist));
 
 	while ((opt = getopt_long(argc, argv,
-																											"flr:a:td:w:p:s:n:hB:b:H:m:p:e:x:u:j:o:gy:i:q:D:VR:S:TX:Y:OL:EP:Z:"AXE_OPTS,
+																											"flr:a:td:w:p:s:n:hB:b:H:N:c:m:p:e:x:u:j:o:gy:i:q:D:VR:S:TX:Y:OL:EP:Z:"AXE_OPTS,
 																											long_options, NULL)) != -1)
 	{
 		//              printf("options %d %c %s\n",opt,opt,optarg);
@@ -500,6 +506,16 @@ void set_options(int argc, char *argv[])
 		case FOREGROUND_OPT:
 		{
 			opts.daemon = 0;
+			break;
+		}
+		case NAME_OPT:
+		{
+			strncpy(app_name, optarg, sizeof(app_name));
+			break;
+		}
+		case CONFIG_OPT:
+		{
+			strncpy(sConfFile, optarg, sizeof(sConfFile));
 			break;
 		}
 		case MAC_OPT:
@@ -1259,8 +1275,7 @@ int ssdp_discovery(sockets * s)
 															"CONFIGID.UPNP.ORG: 0\r\n" "DEVICEID.SES.COM: %d\r\n\r\n\0";
 	char buf[500], mac[15] = "00000000000000";
 	char nt[3][50];
-
-	char uuid1[] = "11223344-9999-0000-b7ae";
+	char uuid1[] = "11223344-9999-0000";
 	socklen_t salen;
 	int i;
 	s->wtime = getTick();
@@ -1268,7 +1283,7 @@ int ssdp_discovery(sockets * s)
 	{
 		uuidi = 1;
 		get_mac(mac);
-		sprintf(uuid, "%s-%s", uuid1, mac);
+		sprintf(uuid, "%s-%04d-%s", uuid1, opts.rtsp_port, mac);
 		fill_sockaddr(&ssdp_sa, opts.disc_host, 1900);
 	}
 	strcpy(nt[0], "::upnp:rootdevice");
@@ -1513,7 +1528,9 @@ int readBootID()
 {
 	int did = 0;
 	opts.bootid = 0;
-	FILE *f = fopen("bootid", "rt");
+    char bootid[256];
+    snprintf(bootid,sizeof(bootid),"bootid_%d",opts.rtsp_port);
+	FILE *f = fopen(bootid, "rt");
 	__attribute__((unused)) int rv;
 	if (f)
 	{
@@ -1525,7 +1542,7 @@ int readBootID()
 	opts.bootid++;
 	if (opts.device_id < 1)
 		opts.device_id = 1;
-	f = fopen("bootid", "wt");
+	f = fopen(bootid, "wt");
 	if (f)
 	{
 		fprintf(f, "%d %d", opts.bootid, opts.device_id);

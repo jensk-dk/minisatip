@@ -36,6 +36,8 @@
 
 extern struct struct_opts opts;
 
+extern const char * gConfFile;
+
 STsFileFreq fileFreqs[MAX_ADAPTERS];
 
 STsfile *ts[MAX_ADAPTERS];
@@ -76,7 +78,7 @@ int find_tsfile(transponder *tp) {
 }
 
 // Returns number of adapters
-int parse_config_file() {
+int parse_config_file(fe_delivery_system_t * oFeds) {
   FILE* fp;
   char buffer[1024];
   int numTuners=1;
@@ -88,16 +90,18 @@ int parse_config_file() {
   
   /// Actual code
   
-  fp = fopen("tsfile.cnf", "r");
+  fp = fopen(gConfFile, "r");
 
   if(fp==0) {
-    LOGL(0, "No tsfile.cnf - no tsfile adapters created");
-    return 0;
+      
+      LOGL(0, "No Config file - no tsfile adapters created %s",gConfFile);
+      return 0;
   }
   int numParams = 0;
   int numFilenames = 0;
   int lineNum=0;
   const char *numTunersKeyword = "NUM_TUNERS";
+  const char *tunerCapsKeyword = "TUNER_CAPS";
   while(fgets(buffer, 1024, (FILE*) fp)) {
     lineNum++;
     printf("%s\n", buffer);
@@ -111,33 +115,62 @@ int parse_config_file() {
     }
     // NUM_TUNERS
     if(!strncmp(realChars, numTunersKeyword, strlen(numTunersKeyword))) {
-      char *keyword = strtok_r(realChars, "=", &savePtr);
-      char *value = strtok_r(NULL, "=", &savePtr);
-      if(value != NULL) {
-	numTuners = atoi(value);
-      }
-      LOGL(0, "numTuners set to %d from tsfile.cnf", numTuners);
-      continue;
+        char *keyword = strtok_r(realChars, "=", &savePtr);
+        char *value = strtok_r(NULL, "=", &savePtr);
+        if(value != NULL) {
+            numTuners = atoi(value);
+        }
+        LOGL(0, "numTuners set to %d from config file", numTuners);
+        continue;
+    }
+    // TUNER_CAPS
+    if(!strncmp(realChars, tunerCapsKeyword, strlen(tunerCapsKeyword))) {
+        char *keyword = strtok_r(realChars, "=", &savePtr);
+        char *value = strtok_r(NULL, "=", &savePtr);
+        value = trimwhitespace(value);
+        if(value != NULL) {
+            printf("CHECKing '%s'\n",value);
+            if(strcmp("DVBT",value)==0){
+                oFeds[0] = SYS_DVBT;
+            } else if(strcmp("DVBT2",value)==0){
+                oFeds[0] = SYS_DVBT2;
+            } else if(strcmp("DVBC",value)==0){
+                oFeds[0] = SYS_DVBC_ANNEX_AC;
+            } else if(strcmp("DVBC2",value)==0){
+                oFeds[0] = SYS_DVBC_ANNEX_AC;
+            } else if(strcmp("DVBS",value)==0){
+                oFeds[0] = SYS_DVBS;
+            } else if(strcmp("DVBS2",value)==0){
+                oFeds[0] = SYS_DVBS2;
+            } else if(strcmp("ATSC",value)==0){
+                oFeds[0] = SYS_ATSC;
+            } else if(strcmp("ISDBT",value)==0){
+                oFeds[0] = SYS_ISDBT;
+            }
+            
+        }
+        LOGL(0, "tunerCaps set to %d from config file", oFeds[0]);
+        continue;
     }
     // Tuner params
     if(realChars[0] == '?') {
       if(numParams != numFilenames) {
-	LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
+	LOGL(0, "cfgfile line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
       }
       int retVal = detect_dvb_parameters(realChars,  &fileFreqs[numParams].tp);
       if(retVal != 0) {
-	LOGL(0, "tsfile.cnf - Error parsing params:", realChars);
+	LOGL(0, "cfgfile - Error parsing params:", realChars);
       }
       numParams++;
       continue;
     }
     // Filename
     if(numParams-1 != numFilenames) {
-      LOGL(0, "tsfile.cnf line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
+      LOGL(0, "cfgfile line %d: Params and filenames must alternate (%d/%d)", lineNum, numParams, numFilenames);
     } else {
       FILE *fp2= fopen(realChars, "r");
       if(fp2==0) {
-	LOGL(0, "tsfile.cnf line %d: Unable to open file %s for frequency %d", lineNum, realChars, fileFreqs[numFilenames].tp.freq);
+	LOGL(0, "cfgfile line %d: Unable to open file %s for frequency %d", lineNum, realChars, fileFreqs[numFilenames].tp.freq);
       } else {
 	strncpy(fileFreqs[numFilenames].fileName, realChars, 1024);
 	printf("fileFreqs[%d].fileName is now %s\n", numFilenames, fileFreqs[numFilenames].fileName);
@@ -481,9 +514,11 @@ void find_tsfile_adapter(adapter **a) {
 	int i, k, n, na;
 	adapter *ad;
 
-	int numTuners = parse_config_file();
-
-	LOGL(0, "tsfile: %i tuners", numTuners);
+    fe_delivery_system_t feds[1];
+    feds[0] = SYS_DVBT;
+	int numTuners = parse_config_file(feds);
+    
+	LOGL(0, "tsfile: %i tuners caps %i", numTuners,feds[0]);
 	
 	// add tsfile "tuners" to the list of adapters
 	na = a_count;
@@ -525,7 +560,7 @@ void find_tsfile_adapter(adapter **a) {
 		ad->close = (Adapter_commit) tsfile_close;
 		ad->type = ADAPTER_TSFILE;
 
-		ad->sys[0] = SYS_DVBT;
+		ad->sys[0] = feds[0];
 
 		na++; // increase number of tuner count
 		a_count = na;

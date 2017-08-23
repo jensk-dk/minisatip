@@ -8,6 +8,7 @@
 # elsewhere - in CPU power or memory/disc/network bandwidth.
 # If not specified, one tuner is assumed
 NUM_TUNERS = 2
+TUNER_CAPS = DVBT
 
 # Next follows alternating lines of Sat>IP tuning parameters and corresponding
 # filenames. Specify as many or as few parameters as you like, but freq and
