@@ -314,7 +314,7 @@ void *tsfile_thread(void *arg) {
     //LOGL(0, "tsfile: writing %d bytes to fd=%d", READ_SIZE, ts->pwfd);
     lw = write(ts->pwfd, buffer, READ_SIZE);
     if (lw != READ_SIZE) LOGL(0, "tsfile: not all data forwarded (%s)", strerror(errno));
-    LOGL(0, "tsfile: delaying %d uSecs", usleepDelay);
+    //    LOGL(0, "tsfile: delaying %d uSecs", usleepDelay);
     usleep(usleepDelay);
   }
   fclose(fp);
@@ -447,18 +447,19 @@ int tsfile_tune(int aid, transponder * tp)
   adapter *ad = get_adapter(aid);
   if (!ad)
     return 1;
-
+  
 #if 1
   if(TS->readThread) {
     LOGL(0, "tsfile: Stopping thread: %s", TS->threadName);
     TS->runThread = 0;
     pthread_join(TS->readThread, &retVal);
+    TS->readThread = 0;
     LOGL(0, "tsfile: Stopped thread: %s", TS->threadName);
   }
 #endif
   TS->fileFreqIndex = find_tsfile(tp);
   LOGL(0, "Found fileFreqIndex = %d\n", TS->fileFreqIndex);
-  #if 1
+#if 1
   if(TS->fileFreqIndex != -1) {
     LOGL(0, "tsfile: creating read thread for adapter %d", ad->id);
     TS->runThread = 1;
@@ -474,7 +475,7 @@ int tsfile_tune(int aid, transponder * tp)
   } else {
     LOGL(0, "tsfile: No matching frequency for adapter %d at freq=%d - not creating read thread", ad->id, tp->freq);
     ad->strength = 0;
-    ad->status = 0;
+    ad->status = FE_TIMEDOUT;
     ad->snr = 0;
     ad->ber = 0;
   }

@@ -101,6 +101,7 @@ adapter *adapter_alloc()
 
 void find_adapters()
 {
+    LOGL(0,"find_adapters");
 	static int init_find_adapter;
 	if (init_find_adapter == 1)
 		return;
@@ -108,19 +109,23 @@ void find_adapters()
 	a_count = 0;
 #ifndef DISABLE_LINUXDVB
 	find_dvb_adapter(a);
+    LOGL(0,"LDVB find_adapters %d",a_count);
 #endif
 #ifndef DISABLE_SATIPCLIENT
 	find_satip_adapter(a);
+    LOGL(0,"SATIP find_adapters %d",a_count);
 #endif
 #ifndef DISABLE_NETCVCLIENT
 	find_netcv_adapter(a);
 #endif
 #ifndef DISABLE_TSFILE
 	find_tsfile_adapter(a);
+    LOGL(0,"TSFILE find_adapters %d",a_count);
 #endif
 #ifdef AXE
 	find_axe_adapter(a);
 #endif
+    LOGL(0,"find_adapters %d",a_count);
 }
 
 // avoid adapter close unless all the adapters can be closed
