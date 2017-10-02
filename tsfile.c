@@ -68,7 +68,8 @@ char *trimwhitespace(char *str)
 // For now we only compare frequency, and the other parameters are don't cares
 // but we could be strict here if we wanted to
 int find_tsfile(transponder *tp) {
-  for(int i=0;i<MAX_ADAPTERS;i++) {
+  int i=0;
+  for(i;i<MAX_ADAPTERS;i++) {
     printf("%d Comparing %d %d\n", i, fileFreqs[i].tp.freq, tp->freq);
     if(fileFreqs[i].tp.freq == tp->freq) {
       return i;
@@ -324,6 +325,7 @@ void *tsfile_thread(void *arg) {
 int tsfile_open_device(adapter *ad)
 {
   int pipe_fd[2];
+  int i=0;
   LOGL(0, "tsfile: open_device");
   TS->want_commit = 0;
   
@@ -337,7 +339,7 @@ int tsfile_open_device(adapter *ad)
   LOGL(1, "tsfile: created DVR pipe for adapter %d  -> dvr: %d", ad->id, ad->dvr);
   LOGL(1, "tsfile: TS->pwfd = %d", TS->pwfd);
 
-  for(int i=0;i<MAX_PIDS;i++) {
+  for(i;i<MAX_PIDS;i++) {
     TS->npid[i] = 0xFFFF;
   }
   return 0;
@@ -345,10 +347,11 @@ int tsfile_open_device(adapter *ad)
 
 int tsfile_set_pid(adapter *ad, uint16_t pid)
 {
+	int i=0;
 	int aid = ad->id;
 	LOGL(0, "tsfile: set_pid for adapter %d, pid %d", aid, pid);
 	int foundPid=0;
-	for(int i=0;i<MAX_PIDS;i++) {
+	for(i;i<MAX_PIDS;i++) {
 	    if(TS->npid[i] == pid) {
 	      printf("Already found at %d\n", i);
 	      foundPid=1;
@@ -356,7 +359,7 @@ int tsfile_set_pid(adapter *ad, uint16_t pid)
 	    }
 	}
 	if(foundPid==0) {
-	  for(int i=0;i<MAX_PIDS;i++) {
+	  for(i;i<MAX_PIDS;i++) {
 	    if(TS->npid[i] == 0xFFFF) {
 	      printf("Set at %d\n", i);
 	      TS->npid[i] = pid;
@@ -376,7 +379,7 @@ int tsfile_del_pid(int fd, int pid)
 	if (!ad)
 		return 0;
 	LOGL(0, "tsfile: del_pid for aid %d, pid %d", fd, pid);
-	for(int i=0;i<MAX_PIDS;i++) {
+	for(i;i<MAX_PIDS;i++) {
 	  if(TS->npid[i] == pid) {
 	    printf("Deleted at %d\n", i);
 	    TS->npid[i] = 0xFFFF;
@@ -392,7 +395,8 @@ void tsfile_commit(adapter *ad)
   
 
   int numPids=0;
-  for(int i=0;i<MAX_PIDS;i++) {
+  int i=0;
+  for(i;i<MAX_PIDS;i++) {
     if(TS->npid[i] != 0xFFFF) {
       numPids++;
     }
